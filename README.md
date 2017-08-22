@@ -26,6 +26,7 @@ dependencies {
 ```
 and then use it in your application just like this:
 ```java
+//db upgrade
 @UpgradeInstance(id = "db")
 public class DbUpgradeHandler1 implements VersionHandler<SQLiteDatabase>{
         @VersionUpgrade(fromVersion = 0, toVersion = 1)
@@ -58,13 +59,26 @@ public class DbUpgradeHandler2 implements VersionHandler<SQLiteDatabase>{
             
          }
 }
-
+//application version update
+@UpgradeInstance(id = "app")
+public class AppUpgradeHandler implements VersionHandler {
+    @VersionUpgrade(fromVersion = 0, toVersion = 1)
+    public void handle01() {
+        
+    }
+}
 ```
 each id will generate class with capture(id)+UpgradeManager,and then you can do with this manager
 ```java
-public class Test{
-    public void upgrade(){
+//db
+public class DbOpenHelper extends SQLiteOpenHelper{
+    //...other virtual method ....
+    
+    @Override
+    public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
+        SQLiteDatabase db = SQLiteDatabase.openOrCreateDatabase("/sqlite.db", null);
         DbUpgradeManager dbUpgradeManager = new DbUpgradeManager();
+        //above VersionHandler<SQLiteDatabase> means seedInstance isInstance of SQLiteDatabase 
         dbUpgradeManager.setSeedInstance(db);
         try {
               dbUpgradeManager.applyUpgrade();
@@ -73,6 +87,20 @@ public class Test{
           }
     }
 }
+//app
+public class App extends Application {
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        AppUpgradeManager appUpgradeManager = new AppUpgradeManager();
+        try {
+            appUpgradeManager.applyUpgrade();
+        } catch (UpgradeException e) {
+            e.printStackTrace();
+        }
+    }
+ }
+
 
 
 ```
