@@ -1,8 +1,8 @@
-UpgradeSupport
+UniversalUpgrade
 ============
 
 
-How to use lib
+Download
 --------------
 
 ```groovy
@@ -20,8 +20,8 @@ repositories {
     }
 
 dependencies {
-      compile 'com.github.lauhwong:uupgrade:1.0-SNAPSHOT'
-        annotationProcessor 'com.github.lauhwong:uupgrade-compiler:1.0-SNAPSHOT'
+      compile 'com.github.lauhwong:uupgrade:1.1-SNAPSHOT'
+        annotationProcessor 'com.github.lauhwong:uupgrade-compiler:1.1-SNAPSHOT'
     }
 ```
 and then use it in your application just like this:

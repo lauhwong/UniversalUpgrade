@@ -267,24 +267,28 @@ public class UpgradeProcessor implements IAProcessor {
         MethodSpec invokeHandlerMethod = generateInvokeVersionHandlerMethod(mProcessor, applyUpgradeMethod, elementHolders);
         clzBuilder.addMethod(invokeHandlerMethod);
         //applyUpgrade;
-        applyUpgradeMethod.addStatement("int oldVersion=0");
-        applyUpgradeMethod.addStatement("int newVersion=0");
         StringBuilder invokeParamSb = new StringBuilder();
-        for (TypeElementHolder typeElementHolder : elementHolders) {
+        for (int i = 0; i < elementHolders.size(); i++) {
+            TypeElementHolder typeElementHolder = elementHolders.get(i);
             TypeElement typeElement = typeElementHolder.typeElement;
             String inParamName = Utils.lowerFirstChar(typeElement.getSimpleName().toString());
             applyUpgradeMethod.addStatement("$T $L=new $T()", typeElement, inParamName, typeElement);
             applyUpgradeMethod.addStatement("$L.setSeedInstance($L)", inParamName, mSeedFieldName);
             invokeParamSb.append(inParamName);
             invokeParamSb.append(",");
-            //oldVersion
-            applyUpgradeMethod.beginControlFlow("if($L.getVersion()<oldVersion)", inParamName);
-            applyUpgradeMethod.addStatement("oldVersion=$L.getVersion()", inParamName);
-            applyUpgradeMethod.endControlFlow();
-            //newVersion
-            applyUpgradeMethod.beginControlFlow("if($L.maxVersion()>newVersion)", inParamName);
-            applyUpgradeMethod.addStatement("newVersion=$L.maxVersion()", inParamName);
-            applyUpgradeMethod.endControlFlow();
+            if (i == 0) {
+                applyUpgradeMethod.addStatement("int oldVersion=$L.getVersion()", inParamName);
+                applyUpgradeMethod.addStatement("int newVersion=$L.maxVersion()", inParamName);
+            } else {
+                //oldVersion
+                applyUpgradeMethod.beginControlFlow("if($L.getVersion()<oldVersion)", inParamName);
+                applyUpgradeMethod.addStatement("oldVersion=$L.getVersion()", inParamName);
+                applyUpgradeMethod.endControlFlow();
+                //newVersion
+                applyUpgradeMethod.beginControlFlow("if($L.maxVersion()>newVersion)", inParamName);
+                applyUpgradeMethod.addStatement("newVersion=$L.maxVersion()", inParamName);
+                applyUpgradeMethod.endControlFlow();
+            }
         }
         applyUpgradeMethod.addStatement("int fromVersion=$L", umOldVersionParamName);
         applyUpgradeMethod.addStatement("int toVersion=fromVersion+1");
