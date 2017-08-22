@@ -1,0 +1,1 @@
+include ':demo', ':upgrade', ':annotation', ':compiler'
