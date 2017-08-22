@@ -6,6 +6,7 @@ import com.miracles.compiler.AnnotationProcessor;
 import com.miracles.compiler.utils.Utils;
 import com.squareup.javapoet.ClassName;
 import com.squareup.javapoet.CodeBlock;
+import com.squareup.javapoet.FieldSpec;
 import com.squareup.javapoet.JavaFile;
 import com.squareup.javapoet.MethodSpec;
 import com.squareup.javapoet.ParameterizedTypeName;
@@ -14,11 +15,11 @@ import com.squareup.javapoet.TypeSpec;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
 import javax.annotation.processing.RoundEnvironment;
 import javax.lang.model.element.Element;
@@ -33,6 +34,7 @@ import javax.tools.Diagnostic;
 import static javax.lang.model.element.Modifier.FINAL;
 import static javax.lang.model.element.Modifier.PRIVATE;
 import static javax.lang.model.element.Modifier.PUBLIC;
+import static javax.lang.model.element.Modifier.STATIC;
 
 /**
  * Created by lxw
@@ -76,27 +78,10 @@ public class UpgradeProcessor implements IAProcessor {
 
     private Map<String, List<TypeElementHolder>> collection(AnnotationProcessor mProcessor, Set<TypeElement> elements) {
         Map<String, List<TypeElementHolder>> idSortMapping = new HashMap<>();
-        String vhName = "com.miracles.upgrade.VersionHandler";
         for (TypeElement element : elements) {
             UpgradeInstance upgradeInstance = element.getAnnotation(UpgradeInstance.class);
-            List<? extends TypeMirror> interfaces = element.getInterfaces();
-            boolean implementVh = false;
-            ClassName typeArgClzName = null;
-            for (TypeMirror typeMirror : interfaces) {
-                //mProcessor.mTypes.isSameType not support wildcard.
-                implementVh = vhName.equals(mProcessor.mTypes.erasure(typeMirror).toString());
-                if (implementVh) {
-                    DeclaredType declaredType = (DeclaredType) typeMirror;
-                    List<? extends TypeMirror> typeArguments = declaredType.getTypeArguments();
-                    if (typeArguments.isEmpty()) {
-                        typeArgClzName = ClassName.OBJECT;
-                    } else {
-                        typeArgClzName = Utils.getType(mProcessor.mTypes.erasure(typeArguments.get(0)).toString());
-                    }
-                    break;
-                }
-            }
-            if (!implementVh) {
+            ElementTypeArgHolder typeArgHolder = collectElementTypeArg(mProcessor, element);
+            if (!typeArgHolder.implementVh) {
                 mProcessor.mMessager.printMessage(Diagnostic.Kind.ERROR, "you must implements interface VersionHandler in " + element.getQualifiedName());
                 break;
             }
@@ -106,9 +91,44 @@ public class UpgradeProcessor implements IAProcessor {
                 elementList = new ArrayList<>();
                 idSortMapping.put(id, elementList);
             }
-            elementList.add(new TypeElementHolder(element, typeArgClzName));
+            elementList.add(new TypeElementHolder(element, typeArgHolder.typeArgClzName));
         }
         return idSortMapping;
+    }
+
+    private ElementTypeArgHolder collectElementTypeArg(AnnotationProcessor mProcessor, TypeElement element) {
+        String vhName = "com.miracles.upgrade.VersionHandler";
+        String objectName = "java.lang.Object";
+        List<? extends TypeMirror> interfaces = element.getInterfaces();
+        ClassName typeArgClzName = ClassName.OBJECT;
+        for (TypeMirror typeMirror : interfaces) {
+            //mProcessor.mTypes.isSameType not support wildcard.
+            boolean implementVh = vhName.equals(mProcessor.mTypes.erasure(typeMirror).toString());
+            if (implementVh) {
+                DeclaredType declaredType = (DeclaredType) typeMirror;
+                List<? extends TypeMirror> typeArguments = declaredType.getTypeArguments();
+                if (!typeArguments.isEmpty()) {
+                    typeArgClzName = Utils.getType(mProcessor.mTypes.erasure(typeArguments.get(0)).toString());
+                }
+                return new ElementTypeArgHolder(true, typeArgClzName);
+            }
+        }
+        TypeMirror superTypeMirror = element.getSuperclass();
+        if (!objectName.equals(superTypeMirror.toString())) {
+            return collectElementTypeArg(mProcessor, (TypeElement) mProcessor.mTypes.asElement(superTypeMirror));
+        } else {
+            return new ElementTypeArgHolder(false, typeArgClzName);
+        }
+    }
+
+    private static class ElementTypeArgHolder {
+        private boolean implementVh;
+        private ClassName typeArgClzName;
+
+        private ElementTypeArgHolder(boolean implementVh, ClassName typeArgClzName) {
+            this.implementVh = implementVh;
+            this.typeArgClzName = typeArgClzName;
+        }
     }
 
     private static class UpgradeMethodHolder {
@@ -121,27 +141,27 @@ public class UpgradeProcessor implements IAProcessor {
         }
     }
 
-    private static class MethodInvokeHolder implements Comparator<MethodInvokeHolder> {
+    private static class MethodInvokeHolder implements Comparable<MethodInvokeHolder> {
         private String methodName;
         private int methodPriority;
         private String inApplyParamName;
 
-        public MethodInvokeHolder(String methodName, int methodPriority, String inApplyParamName) {
+        private MethodInvokeHolder(String methodName, int methodPriority, String inApplyParamName) {
             this.methodName = methodName;
             this.methodPriority = methodPriority;
             this.inApplyParamName = inApplyParamName;
         }
 
         @Override
-        public int compare(MethodInvokeHolder o1, MethodInvokeHolder o2) {
-            return o1.methodPriority - o2.methodPriority;
+        public int compareTo(MethodInvokeHolder other) {
+            return other.methodPriority - this.methodPriority;
         }
     }
 
     private MethodSpec generateInvokeVersionHandlerMethod(AnnotationProcessor mProcessor, MethodSpec.Builder applyUpgradeMethod, List<TypeElementHolder> elementHolders) {
         String invokeVersionHandlerName = "invokeVersionHandler";
         List<UpgradeMethodHolder> upgradeMethodHolderList = new ArrayList<>();
-        Map<String, List<MethodInvokeHolder>> methodInvokeHolderMap = new HashMap<>();
+        Map<String, Set<MethodInvokeHolder>> methodInvokeHolderMap = new HashMap<>();
         for (TypeElementHolder typeElementHolder : elementHolders) {
             TypeElement typeElement = typeElementHolder.typeElement;
             String inParamName = Utils.lowerFirstChar(typeElement.getSimpleName().toString());
@@ -161,9 +181,9 @@ public class UpgradeProcessor implements IAProcessor {
                 }
                 String methodName = executableElement.getSimpleName().toString();
                 String identifierName = versionProtocol(annotation.fromVersion(), annotation.toVersion());
-                List<MethodInvokeHolder> methodInvokeHolders = methodInvokeHolderMap.get(identifierName);
+                Set<MethodInvokeHolder> methodInvokeHolders = methodInvokeHolderMap.get(identifierName);
                 if (methodInvokeHolders == null) {
-                    methodInvokeHolders = new ArrayList<>();
+                    methodInvokeHolders = new TreeSet<>();
                     methodInvokeHolderMap.put(identifierName, methodInvokeHolders);
                 }
                 methodInvokeHolders.add(new MethodInvokeHolder(methodName, priority, inParamName));
@@ -180,7 +200,7 @@ public class UpgradeProcessor implements IAProcessor {
         CodeBlock.Builder codeBuilder = CodeBlock.builder();
         codeBuilder.addStatement("if($L==null) return", versionParamName);
         codeBuilder.beginControlFlow("switch($L)", versionParamName);
-        for (Map.Entry<String, List<MethodInvokeHolder>> entry : methodInvokeHolderMap.entrySet()) {
+        for (Map.Entry<String, Set<MethodInvokeHolder>> entry : methodInvokeHolderMap.entrySet()) {
             codeBuilder.add("case $S:\n", entry.getKey());
             for (MethodInvokeHolder methodInvokeHolder : entry.getValue()) {
                 codeBuilder.addStatement("$L.$L()", methodInvokeHolder.inApplyParamName, methodInvokeHolder.methodName);
@@ -205,10 +225,12 @@ public class UpgradeProcessor implements IAProcessor {
         String vhName = "com.miracles.upgrade.VersionHandler";
         String umName = "com.miracles.upgrade.UpgradeManager";
         String upExName = "com.miracles.upgrade.UpgradeException";
+        String logName = "android.util.Log";
 
         ClassName vhClzName = Utils.getType(vhName);
         ClassName umClzName = Utils.getType(umName);
         ClassName upExClzName = Utils.getType(upExName);
+        ClassName logClzName = Utils.getType(logName);
 
         String umOldVersionParamName = "oldVersion";
         String umNewVersionParamName = "newVersion";
@@ -220,7 +242,16 @@ public class UpgradeProcessor implements IAProcessor {
         TypeSpec.Builder clzBuilder = TypeSpec.classBuilder(clzName)
                 .addSuperinterface(umPtName)
                 .addField(universalTypeArgClzName, mSeedFieldName, PRIVATE)
-                .addModifiers(PUBLIC, FINAL);
+                .addModifiers(PUBLIC);
+        FieldSpec.Builder tagFieldBuilder = FieldSpec.builder(String.class, "TAG", PRIVATE, STATIC, FINAL).initializer("$S", clzName);
+        clzBuilder.addField(tagFieldBuilder.build());
+        //logMethod
+        MethodSpec.Builder logMethodBuilder = MethodSpec.methodBuilder("log")
+                .returns(TypeName.VOID).addModifiers(PUBLIC)
+                .addParameter(String.class, "message");
+        logMethodBuilder.addStatement("$T.d($L,$L)", logClzName, "TAG", "message");
+        MethodSpec logMethod = logMethodBuilder.build();
+        clzBuilder.addMethod(logMethod);
         //setSeedInstance
         MethodSpec.Builder setSeedMethod = MethodSpec.methodBuilder("setSeedInstance")
                 .returns(TypeName.VOID).addModifiers(PUBLIC)
@@ -231,21 +262,29 @@ public class UpgradeProcessor implements IAProcessor {
         MethodSpec.Builder applyUpgradeMethod = MethodSpec.methodBuilder("applyUpgrade")
                 .returns(TypeName.VOID).addModifiers(PUBLIC)
                 .addAnnotation(Override.class)
-                .addParameter(TypeName.INT, umOldVersionParamName)
-                .addParameter(TypeName.INT, umNewVersionParamName)
                 .addException(upExClzName);
         //invoke method
         MethodSpec invokeHandlerMethod = generateInvokeVersionHandlerMethod(mProcessor, applyUpgradeMethod, elementHolders);
         clzBuilder.addMethod(invokeHandlerMethod);
         //applyUpgrade;
+        applyUpgradeMethod.addStatement("int oldVersion=0");
+        applyUpgradeMethod.addStatement("int newVersion=0");
         StringBuilder invokeParamSb = new StringBuilder();
         for (TypeElementHolder typeElementHolder : elementHolders) {
             TypeElement typeElement = typeElementHolder.typeElement;
             String inParamName = Utils.lowerFirstChar(typeElement.getSimpleName().toString());
-            applyUpgradeMethod.addStatement("$T $L=new $T();", typeElement, inParamName, typeElement);
-            applyUpgradeMethod.addStatement("$L.setSeedInstance($L);", inParamName, mSeedFieldName);
+            applyUpgradeMethod.addStatement("$T $L=new $T()", typeElement, inParamName, typeElement);
+            applyUpgradeMethod.addStatement("$L.setSeedInstance($L)", inParamName, mSeedFieldName);
             invokeParamSb.append(inParamName);
             invokeParamSb.append(",");
+            //oldVersion
+            applyUpgradeMethod.beginControlFlow("if($L.getVersion()<oldVersion)", inParamName);
+            applyUpgradeMethod.addStatement("oldVersion=$L.getVersion()", inParamName);
+            applyUpgradeMethod.endControlFlow();
+            //newVersion
+            applyUpgradeMethod.beginControlFlow("if($L.maxVersion()>newVersion)", inParamName);
+            applyUpgradeMethod.addStatement("newVersion=$L.maxVersion()", inParamName);
+            applyUpgradeMethod.endControlFlow();
         }
         applyUpgradeMethod.addStatement("int fromVersion=$L", umOldVersionParamName);
         applyUpgradeMethod.addStatement("int toVersion=fromVersion+1");
@@ -254,7 +293,9 @@ public class UpgradeProcessor implements IAProcessor {
         tryCode.beginControlFlow("while ($L >= toVersion)", umNewVersionParamName);
         //handle upgrade
         tryCode.addStatement("String compact=$L+$S+$L", "fromVersion", "->", "toVersion");
+        tryCode.addStatement("$L($S+$L+$S+$L)", logMethod.name, "start upgrade fromVersion->toVersion:", "fromVersion", "->", "toVersion");
         tryCode.addStatement("$L($L$L)", invokeHandlerMethod.name, invokeParamSb.toString(), "compact");
+        tryCode.addStatement("$L($S+$L+$S+$L)", logMethod.name, "upgrade success fromVersion->toVersion:", "fromVersion", "->", "toVersion");
         tryCode.addStatement("fromVersion=toVersion");
         tryCode.addStatement("++toVersion");
         tryCode.endControlFlow();

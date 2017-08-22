@@ -5,6 +5,6 @@ package com.miracles.upgrade;
  */
 public interface UpgradeManager<T> extends SeedInstance<T> {
 
-    void applyUpgrade(int oldVersion, int newVersion) throws UpgradeException;
+    void applyUpgrade() throws UpgradeException;
 
 }
