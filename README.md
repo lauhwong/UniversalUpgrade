@@ -7,8 +7,8 @@ Download
 
 ```groovy
 dependencies {
-  compile 'com.github.lauhwong:uupgrade:1.0'
-  annotationProcessor 'com.github.lauhwong:uupgrade-compiler:1.0'
+  compile 'com.github.lauhwong:uupgrade:1.0.1'
+  annotationProcessor 'com.github.lauhwong:uupgrade-compiler:1.0.1'
 }
 ```
 or use snap-shot in maven
@@ -39,14 +39,14 @@ public class DbUpgradeHandler1 implements VersionHandler<SQLiteDatabase>{
     
         }
         @VersionUpgrade(fromVersion = 1, toVersion = 2,priority=1)
-         public void handle12() {
+         public void handle12p1() {
             
          }
 }
 @UpgradeInstance(id = "db")
 public class DbUpgradeHandler2 implements VersionHandler<SQLiteDatabase>{
         @VersionUpgrade(fromVersion = 2, toVersion = 3)
-        public void handle01() {
+        public void handle23() {
     
         }
     
