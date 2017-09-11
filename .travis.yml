@@ -1,16 +1,14 @@
 language: android
 jdk: oraclejdk8
 env:
-  global:
-    - ANDROID_TARGET=android-21
-    - ANDROID_ABI=armeabi-v7a
+  matrix:
+    - ANDROID_SDKS=android-19,sysimg-19  ANDROID_TARGET=android-19  ANDROID_ABI=armeabi-v7a
 android:
   components:
   - platform-tools
   - tools
   - build-tools-25.0.3
   - android-25
-  - sys-img-${ANDROID_ABI}-${ANDROID_TARGET}
 
 before_install:
   - echo no | android create avd --force -n test -t $ANDROID_TARGET --abi $ANDROID_ABI
